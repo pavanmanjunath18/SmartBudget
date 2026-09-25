@@ -211,3 +211,56 @@ def test_rules_suggestions_and_categorizing_are_isolated(
         json={"pattern": "x", "account_id": alice_ids["5500"]},
     )
     assert bad_rule.status_code == 422
+
+
+def test_customers_invoices_and_payments_are_isolated(
+    client: TestClient, make_user: MakeUser
+) -> None:
+    alice = make_user("alice@example.com")
+    bob = make_user("bob@example.com")
+    alice_ids = account_ids(client, alice)
+    bob_ids = account_ids(client, bob)
+    alice_base = f"/api/v1/orgs/{alice.org_id}"
+    bob_base = f"/api/v1/orgs/{bob.org_id}"
+    customer = client.post(
+        f"{alice_base}/customers", headers=alice.headers, json={"name": "Acme"}
+    ).json()["id"]
+    line = {"description": "x", "quantity": "1", "unit_price_cents": 100}
+    invoice = client.post(
+        f"{alice_base}/invoices",
+        headers=alice.headers,
+        json={
+            "customer_id": customer,
+            "issue_date": "2026-03-01",
+            "due_date": "2026-03-31",
+            "lines": [{**line, "income_account_id": alice_ids["4000"]}],
+        },
+    ).json()["id"]
+    client.post(f"{alice_base}/invoices/{invoice}/send", headers=alice.headers)
+
+    assert client.get(f"{bob_base}/customers", headers=bob.headers).json() == []
+    assert client.get(f"{bob_base}/invoices", headers=bob.headers).json() == []
+    assert client.get(f"{bob_base}/customers/{customer}", headers=bob.headers).status_code == 404
+    assert client.get(f"{bob_base}/invoices/{invoice}", headers=bob.headers).status_code == 404
+    paid = client.post(
+        f"{bob_base}/invoices/{invoice}/payments",
+        headers=bob.headers,
+        json={"amount_cents": 100, "payment_date": "2026-03-05"},
+    )
+    assert paid.status_code == 404
+    # Bob can't bill Alice's customer from his own org.
+    stolen = client.post(
+        f"{bob_base}/invoices",
+        headers=bob.headers,
+        json={
+            "customer_id": customer,
+            "issue_date": "2026-03-01",
+            "due_date": "2026-03-31",
+            "lines": [{**line, "income_account_id": bob_ids["4000"]}],
+        },
+    )
+    assert stolen.status_code == 404
+    aging = client.get(
+        f"{bob_base}/reports/ar-aging", params={"as_of": "2026-06-01"}, headers=bob.headers
+    ).json()
+    assert aging["rows"] == []

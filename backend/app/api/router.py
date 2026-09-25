@@ -2,7 +2,16 @@
 
 from fastapi import APIRouter
 
-from app.api import accounts, auth, categorization, health, imports, journal, organizations
+from app.api import (
+    accounts,
+    auth,
+    categorization,
+    health,
+    imports,
+    invoicing,
+    journal,
+    organizations,
+)
 
 api_router = APIRouter(prefix="/api/v1")
 api_router.include_router(health.router)
@@ -12,3 +21,4 @@ api_router.include_router(accounts.router)
 api_router.include_router(journal.router)
 api_router.include_router(imports.router)
 api_router.include_router(categorization.router)
+api_router.include_router(invoicing.router)

@@ -256,3 +256,46 @@ numbers are claimed in these docs: they depend on real usage and haven't been me
 `categorize` loads the bank transaction with `SELECT ... FOR UPDATE` and requires status
 `for_review`. Two simultaneous requests for the same transaction are serialized: the second
 sees `posted` and gets 409, so the same bank line can't create two journal entries.
+
+## Stage 6 - Invoicing and accounts receivable
+
+### Accrual accounting: income is recorded when the invoice is sent
+Sending an invoice posts debit Accounts Receivable / credit income (one credit per income
+account used on the lines). Recording a payment posts debit Bank / credit Accounts
+Receivable. So revenue shows up in the month the work was billed, and the customer's debt is
+visible on the balance sheet until it's paid. Both go through `ledger_service.record_entry`.
+
+### Drafts are outside the ledger
+A draft can be edited or deleted freely because nothing has been posted. Once sent, the
+invoice can't be edited or deleted (tested). Voiding a sent invoice (a reversing entry plus
+a `void` status) is a natural next step but was left out to keep the MVP scope.
+
+### "Overdue" is computed, not stored
+An invoice is overdue when it is sent, past its due date and still has a balance. That is
+calculated when the invoice is read, so there is no nightly job to flip statuses and the
+value can never be stale. Stored statuses are only draft, sent and paid.
+
+### Partial payments; the invoice row is locked while paying
+Payments can be partial; the invoice becomes `paid` when the balance due reaches 0. A
+payment larger than the balance due is rejected. `record_payment` loads the invoice with
+`SELECT ... FOR UPDATE`, so two payments recorded at the same moment are processed one after
+the other and can't together exceed the balance.
+
+### Quantities are decimals, money is still integer cents
+`quantity` is `NUMERIC(10,2)` so "1.5 hours" works. A line amount is
+`quantity x unit_price_cents`, rounded half-up to a whole cent once per line, and the invoice
+total is the sum of the rounded lines. Tested with values that land exactly on half a cent.
+
+### Invoice numbers: highest + 1, protected by a unique constraint
+Numbers are per organization. Two drafts created at the same moment could compute the same
+number; `UNIQUE(org_id, number)` rejects the second, which retries once with a fresh number.
+Considered: a per-org counter row locked with `FOR UPDATE`. Skipped as more machinery than
+this needs. Tradeoff: deleting the newest draft frees its number for reuse; deleting an older
+draft leaves a gap.
+
+### AR aging is computed from dates, and it ties out to the ledger
+`GET /reports/ar-aging?as_of=` takes every sent or paid invoice issued on or before `as_of`
+and subtracts only payments dated on or before `as_of`. An invoice paid next week still shows
+as owed in a report for today. Buckets: current (not yet due), 1-30, 31-60, 61-90 and over 90
+days past due. A test builds invoices in every bucket and checks that the aging total equals
+the Accounts Receivable balance on the same date: the subledger and the ledger agree.

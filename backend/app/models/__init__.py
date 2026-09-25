@@ -11,6 +11,7 @@ from app.models.categorization import (
     SuggestionStatus,
     VendorCategoryCache,
 )
+from app.models.invoicing import Customer, Invoice, InvoiceLine, InvoiceStatus, Payment
 from app.models.journal import EntrySource, JournalEntry, JournalLine
 from app.models.organization import Membership, Organization, Role
 from app.models.user import User
@@ -23,14 +24,19 @@ __all__ = [
     "BankTransactionStatus",
     "CategoryRule",
     "CategorySuggestion",
+    "Customer",
     "EntrySource",
     "ImportHistory",
+    "Invoice",
+    "InvoiceLine",
+    "InvoiceStatus",
     "JournalEntry",
     "JournalLine",
     "MatchField",
     "MatchType",
     "Membership",
     "Organization",
+    "Payment",
     "Role",
     "SuggestionSource",
     "SuggestionStatus",

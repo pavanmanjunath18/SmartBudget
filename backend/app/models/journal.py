@@ -32,6 +32,8 @@ class EntrySource(StrEnum):
     MANUAL = "manual"
     REVERSAL = "reversal"
     BANK = "bank"  # a categorized bank transaction
+    INVOICE = "invoice"  # an invoice was sent: debit AR, credit income
+    PAYMENT = "payment"  # a customer paid: debit bank, credit AR
 
 
 class JournalEntry(Base):
