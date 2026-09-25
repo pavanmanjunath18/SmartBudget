@@ -299,3 +299,38 @@ and subtracts only payments dated on or before `as_of`. An invoice paid next wee
 as owed in a report for today. Buckets: current (not yet due), 1-30, 31-60, 61-90 and over 90
 days past due. A test builds invoices in every bucket and checks that the aging total equals
 the Accounts Receivable balance on the same date: the subledger and the ledger agree.
+
+## Stage 7 - Reports
+
+### Reports are SQL sums over the ledger, nothing is stored
+Profit & loss, balance sheet, cash flow and monthly totals are each one or two `SUM ...
+GROUP BY` queries over journal lines. There are no stored totals to fall out of sync, and a
+reversal automatically cancels its original in every report. Accounts that net to zero in
+the period are left out of the output.
+
+### Balance sheet: current earnings instead of closing entries
+Real bookkeeping closes income and expenses into retained earnings at year end. This MVP
+doesn't post closing entries, so the balance sheet computes "current earnings" (all income
+minus all expenses up to the date) and shows it in equity. The response includes
+`is_balanced` (assets == liabilities + equity), and a test checks it on several dates.
+
+### Cash flow: a simplified direct-method summary
+For every entry that touches a bank account in the period, the entry's other lines explain
+where the cash came from or went. Because each entry sums to zero, the cash effect of a
+non-bank line is minus its amount. Effects are grouped by that account:
+- income, expenses and accounts receivable -> operating
+- liabilities and equity (credit card paydowns, owner money in and out) -> financing
+- other assets -> investing
+Transfers between two bank accounts have no other lines and net to nothing. This is a summary
+for a small business owner, not a GAAP statement of cash flows (which uses the indirect method
+and finer classifications). Tests check that opening cash + net change == closing cash.
+
+### Tested against a hand-worked fixture
+`tests/test_reports.py` posts a known two-month set of transactions (owner investment, rent,
+credit card, invoice and partial collection, owner draw, a mistake plus its reversal, cash
+sale, meals, and one entry outside the range). Every expected number in the assertions was
+worked out by hand from that list.
+
+### Monthly totals for the dashboard
+`/reports/monthly` groups income and expenses by `date_trunc('month', entry_date)` in one
+query, for the income-vs-expenses chart.
