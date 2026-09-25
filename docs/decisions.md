@@ -449,3 +449,16 @@ Three jobs on every push and pull request: backend (ruff lint, ruff format check
 against a Postgres service container), frontend (Vitest, type check and production build)
 and docker (both images build). Tests never call a real LLM: the categorization tests use a
 fake provider, and CI sets `LLM_PROVIDER=none` as a second guard.
+
+## Stage 11 - README and docs
+
+### API docs under /api
+FastAPI's interactive docs moved from `/docs` to `/api/docs` (and the OpenAPI spec to
+`/api/openapi.json`), so they are reachable through the same nginx proxy as the API in the
+Docker setup instead of needing a second exposed port.
+
+### Only claims that were checked
+The README states only what the code and tests show: test counts come from the actual runs,
+screenshots are of the seeded demo running in Docker, and there are no performance or
+accuracy numbers because none were measured. Suggestion acceptance rates are tracked by the
+app (`/suggestions/stats`) but depend on real usage, so none are quoted.

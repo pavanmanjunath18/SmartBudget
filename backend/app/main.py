@@ -33,7 +33,8 @@ def create_app() -> FastAPI:
     """Build the FastAPI app. A factory keeps tests free to create fresh instances."""
     settings = get_settings()
     configure_logging(settings.log_level)
-    app = FastAPI(title=settings.app_name)
+    # Docs live under /api so they work behind the same nginx proxy as the API.
+    app = FastAPI(title=settings.app_name, docs_url="/api/docs", openapi_url="/api/openapi.json")
     app.add_exception_handler(ServiceError, _service_error_handler)
     app.include_router(api_router)
     return app
