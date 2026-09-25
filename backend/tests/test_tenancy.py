@@ -141,3 +141,34 @@ def test_cannot_post_to_another_orgs_account(client: TestClient, make_user: Make
         f"/api/v1/orgs/{alice.org_id}/accounts/{alice_ids['1000']}/balance", headers=alice.headers
     ).json()
     assert alice_checking["balance_cents"] == 0
+
+
+def test_imports_and_bank_transactions_are_isolated(
+    client: TestClient, make_user: MakeUser
+) -> None:
+    alice = make_user("alice@example.com")
+    bob = make_user("bob@example.com")
+    alice_checking = account_ids(client, alice)["1000"]
+    csv_text = "Date,Description,Amount\n2026-01-03,Coffee,-4.50\n"
+    mapping = '{"date": "Date", "description": "Description", "amount": "Amount"}'
+    import_id = client.post(
+        f"/api/v1/orgs/{alice.org_id}/imports",
+        headers=alice.headers,
+        files={"file": ("a.csv", csv_text.encode(), "text/csv")},
+        data={"account_id": str(alice_checking), "mapping": mapping},
+    ).json()["id"]
+    bob_base = f"/api/v1/orgs/{bob.org_id}"
+
+    assert (
+        client.get(f"/api/v1/orgs/{alice.org_id}/imports", headers=bob.headers).status_code == 404
+    )
+    assert client.get(f"{bob_base}/imports/{import_id}", headers=bob.headers).status_code == 404
+    assert client.get(f"{bob_base}/bank-transactions", headers=bob.headers).json() == []
+    # Bob can't import into Alice's bank account from his own org.
+    response = client.post(
+        f"{bob_base}/imports",
+        headers=bob.headers,
+        files={"file": ("a.csv", csv_text.encode(), "text/csv")},
+        data={"account_id": str(alice_checking), "mapping": mapping},
+    )
+    assert response.status_code == 404

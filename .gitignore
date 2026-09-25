@@ -20,3 +20,4 @@ dist/
 .idea/
 .vscode/
 .pyvirt/
+backend/uploads/

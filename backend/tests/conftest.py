@@ -19,6 +19,7 @@ from alembic import command
 from app.core.config import get_settings
 from app.db.session import get_db
 from app.main import create_app
+from app.services.storage import get_storage
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 
@@ -55,11 +56,27 @@ def db_session(engine: Engine) -> Iterator[Session]:
         connection.close()
 
 
+class InMemoryStorage:
+    """Test double for FileStorage: keeps uploaded files in a dict."""
+
+    def __init__(self) -> None:
+        self.files: dict[str, bytes] = {}
+
+    def save(self, key: str, content: bytes) -> None:
+        self.files[key] = content
+
+
 @pytest.fixture
-def client(db_session: Session) -> Iterator[TestClient]:
+def storage() -> InMemoryStorage:
+    return InMemoryStorage()
+
+
+@pytest.fixture
+def client(db_session: Session, storage: InMemoryStorage) -> Iterator[TestClient]:
     """HTTP client whose requests use the rolled-back test session."""
     app = create_app()
     app.dependency_overrides[get_db] = lambda: db_session
+    app.dependency_overrides[get_storage] = lambda: storage
     with TestClient(app) as test_client:
         yield test_client
 

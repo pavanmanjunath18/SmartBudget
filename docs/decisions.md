@@ -141,3 +141,61 @@ features need to find.
 Journal lines carry `org_id` as well, so balance queries filter lines directly. Accounts or
 entries of another organization are reported as "not found", both through their own URLs and
 when referenced from inside your own org (e.g. posting to someone else's account id).
+
+## Stage 4 - Bank import
+
+### Parsing is pure; importing touches the database
+`csv_service.py` only turns bytes into validated rows (no database), so it is unit tested
+with plain inputs. `import_service.py` does the database work. Ideas kept from the SmartLedger
+reference project: Excel BOM handling, `$`/comma/parentheses amounts, per-row error lists,
+an import history record with counts.
+
+### Column mapping instead of one fixed format
+Banks export different headers, and some use one signed Amount column while others use
+separate Withdrawal/Deposit columns. The upload takes a mapping (`date`, `description`, and
+either `amount` or `debit` + `credit`). A preview endpoint shows headers and sample rows and
+guesses the mapping from common header names.
+
+### Dates: ISO and US formats are guessed, day-first is not
+`03/04/2026` could be March 4 or April 3. Guessing wrong silently books transactions in the
+wrong month, so only unambiguous defaults are tried (ISO, then US month-first) and a
+day-first bank must pass `date_format: "%d/%m/%Y"`.
+
+### Amounts: Decimal, and more than 2 decimals is an error
+Amounts are parsed with `Decimal` and converted to integer cents. `-1.005` is reported as an
+error rather than rounded, so an import never invents or loses a cent.
+
+### Idempotency: fingerprint + unique constraint + ON CONFLICT DO NOTHING
+Each valid row gets `sha256(account | date | amount | normalized description | occurrence)`.
+`bank_transactions` has UNIQUE(org_id, account_id, fingerprint), and rows are inserted with
+`ON CONFLICT DO NOTHING`, so the database itself skips rows that already exist. This also
+holds when two uploads of the same file run at the same moment, which a "check first, then
+insert" approach would get wrong.
+- Occurrence number: the SmartLedger reference used (date, amount, description) and silently
+  dropped real repeats, like two $4.50 coffees on the same day. Here the Nth identical row in a
+  file gets occurrence N, so both coffees are kept, and re-importing the file produces the
+  same fingerprints again.
+- Known limitation: if one export cuts off in the middle of a day and the next export includes
+  the whole day, identical same-day rows can shift occurrence numbers and one may be imported
+  twice. Rare (it needs identical date, amount and description), and visible in review.
+- The account is part of the key: the same coffee in two different bank accounts is two
+  transactions.
+
+### Two different normalizations
+- For the fingerprint: only lower-case and collapse spaces. `CHECK #1041` and `CHECK #1042`
+  must stay different.
+- For the vendor (`normalized_vendor`): strip processor prefixes (`SQ *`, `TST*`, `PAYPAL *`,
+  `POS`), store numbers and long digit runs. Used for categorization rules and the vendor cache
+  in Stage 5, never for dedupe.
+
+### Imported rows are not in the ledger yet
+Imported rows land in `bank_transactions` with status `for_review`. They become journal
+entries when the user categorizes them (Stage 5). Posting them immediately to an
+"Uncategorized" account would need a reversing entry for every re-categorization, because
+posted entries are immutable.
+
+### Limits and storage
+5 MB and 10,000 rows per file. Inserts are batched 1,000 rows at a time (Postgres allows
+65,535 parameters per statement). The raw file is saved through a `FileStorage` interface
+(local disk now, S3 later), keyed by the file's SHA-256. Only accounts marked as bank
+accounts accept imports.

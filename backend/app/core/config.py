@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     jwt_secret_key: str
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60
+    # Local folder for uploaded CSV files (replaced by S3 when deployed).
+    upload_dir: str = "uploads"
 
 
 @lru_cache
