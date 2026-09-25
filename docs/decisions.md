@@ -368,3 +368,50 @@ There is no reconciliation-history table: the state is the `reconciled_at` times
 each bank line. Considered: a `reconciliations` table (statement date, balance, who
 completed it) and per-line clearing of ledger entries without bank lines. Skipped for the MVP;
 both are straightforward to add later.
+
+## Stage 9 - Frontend
+
+### Small, standard stack
+React + TypeScript on Vite, TanStack Query for server data (caching, loading states and
+refetching after a change), React Router for pages, Recharts for the one chart. No component
+library and no global state library: the only shared client state is "who is logged in and
+which organization is selected", which lives in one React context.
+
+### Same origin through a proxy, so no CORS
+The browser only talks to `/api/...` on the frontend's own origin. In development Vite
+proxies that to the API on port 8000; in Docker, nginx does the same. The backend therefore
+needs no CORS configuration at all.
+
+### Money in the browser: integer and string math only
+The UI shows and accepts dollars, but the API only takes integer cents. `src/lib/money.ts`
+converts both ways with string parsing and integer arithmetic (never `parseFloat`), rejects
+more than two decimals, and has unit tests (Vitest), including a round-trip test.
+
+### Token in localStorage (tradeoff)
+The JWT is kept in `localStorage` so a page reload keeps the user logged in. The downside:
+any XSS bug could read it. The safer alternative is an httpOnly, SameSite cookie set by the
+API, which also needs CSRF protection. Kept simple for the MVP and written down here; React
+escapes rendered text by default, and the app never injects raw HTML.
+
+### Pages
+- Dashboard: cash in bank (sum of bank account balances), net income this month, what
+  customers owe (AR aging total), items waiting for review, and income vs expenses for the
+  last six months.
+- Transactions: CSV upload with a preview that pre-fills the column mapping, the per-row error
+  report, and the review queue. Each row shows its suggestion and source (rule, cache or LLM),
+  and can be posted (optionally creating a rule), rejected, excluded, or matched to an existing
+  ledger entry.
+- Invoices: list with computed status, a draft form with line items, send, record payment,
+  and the AR aging table.
+- Reports: profit & loss, balance sheet (with the balanced check) and cash flow for chosen
+  dates.
+
+### Found while testing in the browser: matching needed a button
+Clicking through the flow (invoice -> payment -> import the same deposit) showed that the
+review queue only offered "Post", which would have booked the customer's payment as income a
+second time. The matching API existed (Stage 8) but had no UI. Each review row now has
+"Find match", which lists entries with the same amount on the same bank account within 7 days.
+
+### Not built
+A reconciliation screen, account management, rule management and journal entry screens.
+All of those exist in the API (see /docs on the running server) but have no UI yet.
