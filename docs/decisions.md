@@ -415,3 +415,37 @@ second time. The matching API existed (Stage 8) but had no UI. Each review row n
 ### Not built
 A reconciliation screen, account management, rule management and journal entry screens.
 All of those exist in the API (see /docs on the running server) but have no UI yet.
+
+## Stage 10 - Quality and packaging
+
+### Audit log: deliberately not built
+A change log of who changed what and when is planned but left out on purpose (it will be
+built live as a demo). The groundwork is in place: every write goes through a service
+function, so logging can be added there without touching the routes, and ledger history is
+already preserved because posted entries are immutable and corrections are reversals.
+
+### Seed script uses the real services
+`python -m app.scripts.seed` creates a demo studio with three months of activity: an
+opening balance, categorization rules, three customers with paid, part-paid, overdue, current
+and draft invoices, a bank statement imported through the CSV importer, deposits matched to
+recorded payments, and a few transactions left in the review queue. It calls the same service
+functions as the API, so the demo data obeys every rule, and a test runs it against the test
+database and checks the books balance. Dates are relative to today so the dashboard always
+has recent months. Running it again does nothing.
+
+### Docker
+- API image: Python slim, dependencies installed in their own layer, runs as a non-root user,
+  applies migrations on start. With more than one replica, migrations should become a
+  separate one-off task (e.g. an ECS task) instead of running on every container start.
+- Web image: a Node build stage, then nginx serving the static files and proxying `/api` to
+  the API container (same origin, so no CORS).
+- `docker compose up --build` runs Postgres, the API and the web app (http://localhost:8080).
+  The test database is behind a compose profile, so it only starts when asked for.
+- The compose file has a local-only default for `JWT_SECRET_KEY` so the demo starts with one
+  command; the app itself still refuses to start without a secret.
+
+### CI (GitHub Actions)
+Three jobs on every push and pull request: backend (ruff lint, ruff format check, pytest
+against a Postgres service container), frontend (Vitest, type check and production build)
+and docker (both images build). Tests never call a real LLM: the categorization tests use a
+fake provider, and CI sets `LLM_PROVIDER=none` as a second guard.

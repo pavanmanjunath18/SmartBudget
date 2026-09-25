@@ -1,3 +1,6 @@
+# Full stack:      docker compose up --build          -> http://localhost:8080
+# Dev database:    docker compose up -d db            (API run locally with uvicorn)
+# Test database:   docker compose --profile test up -d db_test
 services:
   db:
     image: postgres:16-alpine
@@ -15,10 +18,40 @@ services:
       timeout: 3s
       retries: 10
 
+  api:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql+psycopg://smartbudget:smartbudget@db:5432/smartbudget
+      # Local demo only. Set a real secret in any shared environment.
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-local-dev-only-not-a-secret}
+      LLM_PROVIDER: ${LLM_PROVIDER:-none}
+      LLM_MODEL: ${LLM_MODEL:-claude-opus-5}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      UPLOAD_DIR: /app/uploads
+    volumes:
+      - uploads:/app/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  web:
+    build: ./frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      api:
+        condition: service_healthy
+
   # Separate database for pytest. tmpfs keeps it in memory, so it is fast and
   # starts empty every time the container restarts.
   db_test:
     image: postgres:16-alpine
+    profiles: ["test"]
     environment:
       POSTGRES_USER: smartbudget
       POSTGRES_PASSWORD: smartbudget
@@ -35,3 +68,4 @@ services:
 
 volumes:
   pgdata:
+  uploads:

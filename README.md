@@ -8,7 +8,8 @@ Double-entry bookkeeping for freelancers and small businesses. Work in progress;
 Requirements: Python 3.11+, Docker.
 
 ```bash
-docker compose up -d --wait          # Postgres for dev (port 5434) and tests (port 5435)
+docker compose up -d --wait db                       # dev Postgres on port 5434
+docker compose --profile test up -d --wait db_test   # test Postgres on port 5435
 cd backend
 python3 -m venv .venv
 source .venv/bin/activate

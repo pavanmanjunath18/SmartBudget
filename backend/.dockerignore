@@ -1,0 +1,9 @@
+.pyvirt
+.venv
+.env
+.pytest_cache
+.ruff_cache
+uploads
+tests
+**/__pycache__
+*.egg-info
