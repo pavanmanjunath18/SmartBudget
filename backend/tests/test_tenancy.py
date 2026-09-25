@@ -1,0 +1,143 @@
+"""One organization must never see another organization's data.
+
+These tests grow with every stage: each new org-scoped resource gets a
+"user B cannot read or change user A's X" test here.
+"""
+
+from collections.abc import Callable
+
+from fastapi.testclient import TestClient
+
+from tests.conftest import LoggedInUser, account_ids, post_entry
+
+MakeUser = Callable[..., LoggedInUser]
+
+
+def test_member_can_read_own_org(client: TestClient, make_user: MakeUser) -> None:
+    alice = make_user("alice@example.com", org_name="Alice LLC")
+
+    response = client.get(f"/api/v1/orgs/{alice.org_id}", headers=alice.headers)
+
+    assert response.status_code == 200
+    assert response.json()["name"] == "Alice LLC"
+
+
+def test_non_member_gets_404_for_someone_elses_org(client: TestClient, make_user: MakeUser) -> None:
+    alice = make_user("alice@example.com", org_name="Alice LLC")
+    bob = make_user("bob@example.com", org_name="Bob Co")
+
+    response = client.get(f"/api/v1/orgs/{alice.org_id}", headers=bob.headers)
+
+    assert response.status_code == 404
+
+
+def test_other_org_and_missing_org_look_identical(client: TestClient, make_user: MakeUser) -> None:
+    alice = make_user("alice@example.com")
+    bob = make_user("bob@example.com")
+
+    other = client.get(f"/api/v1/orgs/{alice.org_id}", headers=bob.headers)
+    missing = client.get("/api/v1/orgs/999999", headers=bob.headers)
+
+    assert other.status_code == missing.status_code == 404
+    assert other.json() == missing.json()
+
+
+def test_org_list_only_contains_own_orgs(client: TestClient, make_user: MakeUser) -> None:
+    make_user("alice@example.com", org_name="Alice LLC")
+    bob = make_user("bob@example.com", org_name="Bob Co")
+
+    names = [o["name"] for o in client.get("/api/v1/orgs", headers=bob.headers).json()]
+
+    assert names == ["Bob Co"]
+
+
+def test_user_can_create_and_access_a_second_org(client: TestClient, make_user: MakeUser) -> None:
+    alice = make_user("alice@example.com", org_name="Alice LLC")
+
+    created = client.post("/api/v1/orgs", json={"name": "Side Project"}, headers=alice.headers)
+
+    assert created.status_code == 201
+    assert created.json()["role"] == "owner"
+    second_id = created.json()["id"]
+    assert client.get(f"/api/v1/orgs/{second_id}", headers=alice.headers).status_code == 200
+    names = [o["name"] for o in client.get("/api/v1/orgs", headers=alice.headers).json()]
+    assert names == ["Alice LLC", "Side Project"]
+
+
+def test_org_routes_require_login(client: TestClient, make_user: MakeUser) -> None:
+    alice = make_user("alice@example.com")
+
+    assert client.get("/api/v1/orgs").status_code == 401
+    assert client.get(f"/api/v1/orgs/{alice.org_id}").status_code == 401
+
+
+def test_cannot_list_or_read_another_orgs_accounts_or_entries(
+    client: TestClient, make_user: MakeUser
+) -> None:
+    alice = make_user("alice@example.com")
+    bob = make_user("bob@example.com")
+    alice_ids = account_ids(client, alice)
+    entry_id = post_entry(
+        client, alice, [(alice_ids["5500"], 100, 0), (alice_ids["1000"], 0, 100)]
+    ).json()["id"]
+    alice_base = f"/api/v1/orgs/{alice.org_id}"
+
+    for path in (
+        "/accounts",
+        f"/accounts/{alice_ids['1000']}/balance",
+        "/journal-entries",
+        f"/journal-entries/{entry_id}",
+        "/trial-balance",
+    ):
+        assert client.get(alice_base + path, headers=bob.headers).status_code == 404, path
+
+
+def test_cannot_reach_another_orgs_rows_through_own_org_url(
+    client: TestClient, make_user: MakeUser
+) -> None:
+    alice = make_user("alice@example.com")
+    bob = make_user("bob@example.com")
+    alice_ids = account_ids(client, alice)
+    entry_id = post_entry(
+        client, alice, [(alice_ids["5500"], 100, 0), (alice_ids["1000"], 0, 100)]
+    ).json()["id"]
+    bob_base = f"/api/v1/orgs/{bob.org_id}"
+
+    # Bob is a member of his own org, but Alice's ids must not resolve inside it.
+    assert (
+        client.get(f"{bob_base}/journal-entries/{entry_id}", headers=bob.headers).status_code == 404
+    )
+    assert (
+        client.post(
+            f"{bob_base}/journal-entries/{entry_id}/reverse", headers=bob.headers
+        ).status_code
+        == 404
+    )
+    assert (
+        client.get(
+            f"{bob_base}/accounts/{alice_ids['1000']}/balance", headers=bob.headers
+        ).status_code
+        == 404
+    )
+    assert (
+        client.patch(
+            f"{bob_base}/accounts/{alice_ids['1000']}", headers=bob.headers, json={"name": "Mine"}
+        ).status_code
+        == 404
+    )
+
+
+def test_cannot_post_to_another_orgs_account(client: TestClient, make_user: MakeUser) -> None:
+    alice = make_user("alice@example.com")
+    bob = make_user("bob@example.com")
+    alice_ids = account_ids(client, alice)
+    bob_ids = account_ids(client, bob)
+
+    response = post_entry(client, bob, [(bob_ids["5500"], 100, 0), (alice_ids["1000"], 0, 100)])
+
+    assert response.status_code == 422
+    assert "not found" in response.json()["detail"]
+    alice_checking = client.get(
+        f"/api/v1/orgs/{alice.org_id}/accounts/{alice_ids['1000']}/balance", headers=alice.headers
+    ).json()
+    assert alice_checking["balance_cents"] == 0
