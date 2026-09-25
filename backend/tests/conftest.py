@@ -19,6 +19,7 @@ from alembic import command
 from app.core.config import get_settings
 from app.db.session import get_db
 from app.main import create_app
+from app.services.ai_service import AccountOption, TransactionToCategorize, get_suggester
 from app.services.storage import get_storage
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
@@ -71,12 +72,47 @@ def storage() -> InMemoryStorage:
     return InMemoryStorage()
 
 
+class FakeSuggester:
+    """Test double for the LLM: maps a keyword in the description to an account code.
+
+    Records every call so tests can prove when the LLM was (or wasn't) asked.
+    `raw_answers` lets a test return arbitrary ids, like a misbehaving model would.
+    """
+
+    def __init__(self) -> None:
+        self.keyword_to_code: dict[str, str] = {}
+        self.raw_answers: dict[int, int] | None = None
+        self.calls: list[list[int]] = []
+
+    def suggest(
+        self, transactions: list[TransactionToCategorize], accounts: list[AccountOption]
+    ) -> dict[int, int]:
+        self.calls.append([t.id for t in transactions])
+        if self.raw_answers is not None:
+            return self.raw_answers
+        by_code = {a.code: a.id for a in accounts}
+        answers = {}
+        for tx in transactions:
+            for keyword, code in self.keyword_to_code.items():
+                if keyword in tx.description.lower():
+                    answers[tx.id] = by_code[code]
+        return answers
+
+
 @pytest.fixture
-def client(db_session: Session, storage: InMemoryStorage) -> Iterator[TestClient]:
-    """HTTP client whose requests use the rolled-back test session."""
+def suggester() -> FakeSuggester:
+    return FakeSuggester()
+
+
+@pytest.fixture
+def client(
+    db_session: Session, storage: InMemoryStorage, suggester: FakeSuggester
+) -> Iterator[TestClient]:
+    """HTTP client whose requests use the rolled-back test session and test doubles."""
     app = create_app()
     app.dependency_overrides[get_db] = lambda: db_session
     app.dependency_overrides[get_storage] = lambda: storage
+    app.dependency_overrides[get_suggester] = lambda: suggester
     with TestClient(app) as test_client:
         yield test_client
 
@@ -131,3 +167,21 @@ def post_entry(
             "lines": [{"account_id": a, "debit_cents": d, "credit_cents": c} for a, d, c in lines],
         },
     )
+
+
+def import_csv(client: TestClient, user: LoggedInUser, rows: list[tuple[str, str, str]]) -> dict:
+    """Import (date, description, amount) rows into the user's checking account."""
+    csv_text = "Date,Description,Amount\n" + "".join(
+        f'{d},"{desc}",{amt}\n' for d, desc, amt in rows
+    )
+    response = client.post(
+        f"/api/v1/orgs/{user.org_id}/imports",
+        headers=user.headers,
+        files={"file": ("statement.csv", csv_text.encode(), "text/csv")},
+        data={
+            "account_id": str(account_ids(client, user)["1000"]),
+            "mapping": '{"date": "Date", "description": "Description", "amount": "Amount"}',
+        },
+    )
+    assert response.status_code == 201, response.text
+    return response.json()

@@ -60,3 +60,4 @@ class BankTransactionRead(BaseModel):
     description: str
     normalized_vendor: str
     status: str
+    journal_entry_id: int | None

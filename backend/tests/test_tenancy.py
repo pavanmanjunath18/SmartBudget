@@ -8,7 +8,7 @@ from collections.abc import Callable
 
 from fastapi.testclient import TestClient
 
-from tests.conftest import LoggedInUser, account_ids, post_entry
+from tests.conftest import LoggedInUser, account_ids, import_csv, post_entry
 
 MakeUser = Callable[..., LoggedInUser]
 
@@ -172,3 +172,42 @@ def test_imports_and_bank_transactions_are_isolated(
         data={"account_id": str(alice_checking), "mapping": mapping},
     )
     assert response.status_code == 404
+
+
+def test_rules_suggestions_and_categorizing_are_isolated(
+    client: TestClient, make_user: MakeUser, suggester
+) -> None:
+    alice = make_user("alice@example.com")
+    bob = make_user("bob@example.com")
+    alice_ids = account_ids(client, alice)
+    bob_ids = account_ids(client, bob)
+    suggester.keyword_to_code = {"github": "5500"}
+    import_csv(client, alice, [("2026-01-04", "GITHUB INC", "-21.00")])
+    rule = client.post(
+        f"/api/v1/orgs/{alice.org_id}/rules",
+        headers=alice.headers,
+        json={"pattern": "aws", "account_id": alice_ids["5500"]},
+    ).json()
+    suggestion = client.post(
+        f"/api/v1/orgs/{alice.org_id}/bank-transactions/suggest", headers=alice.headers
+    ).json()[0]
+    bob_base = f"/api/v1/orgs/{bob.org_id}"
+
+    assert client.get(f"{bob_base}/rules", headers=bob.headers).json() == []
+    assert client.get(f"{bob_base}/suggestions", headers=bob.headers).json() == []
+    assert client.delete(f"{bob_base}/rules/{rule['id']}", headers=bob.headers).status_code == 404
+    accept = client.post(f"{bob_base}/suggestions/{suggestion['id']}/accept", headers=bob.headers)
+    assert accept.status_code == 404
+    categorize = client.post(
+        f"{bob_base}/bank-transactions/{suggestion['bank_transaction_id']}/categorize",
+        headers=bob.headers,
+        json={"account_id": bob_ids["5500"]},
+    )
+    assert categorize.status_code == 404
+    # Bob can't point his own rule at Alice's account either.
+    bad_rule = client.post(
+        f"{bob_base}/rules",
+        headers=bob.headers,
+        json={"pattern": "x", "account_id": alice_ids["5500"]},
+    )
+    assert bad_rule.status_code == 422

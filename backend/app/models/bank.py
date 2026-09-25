@@ -70,4 +70,6 @@ class BankTransaction(Base):
     normalized_vendor: Mapped[str] = mapped_column(String(200), index=True)
     fingerprint: Mapped[str] = mapped_column(String(64))
     status: Mapped[str] = mapped_column(String(20), default=BankTransactionStatus.FOR_REVIEW)
+    # Set when the transaction is categorized and posted to the ledger.
+    journal_entry_id: Mapped[int | None] = mapped_column(ForeignKey("journal_entries.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

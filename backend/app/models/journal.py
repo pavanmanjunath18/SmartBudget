@@ -27,10 +27,11 @@ from app.models.account import Account
 
 
 class EntrySource(StrEnum):
-    """What created the entry. Later stages add bank, invoice and payment."""
+    """What created the entry."""
 
     MANUAL = "manual"
     REVERSAL = "reversal"
+    BANK = "bank"  # a categorized bank transaction
 
 
 class JournalEntry(Base):

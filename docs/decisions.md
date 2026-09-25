@@ -199,3 +199,60 @@ posted entries are immutable.
 65,535 parameters per statement). The raw file is saved through a `FileStorage` interface
 (local disk now, S3 later), keyed by the file's SHA-256. Only accounts marked as bank
 accounts accept imports.
+
+## Stage 5 - Categorization
+
+### Suggestion order: rules, then vendor cache, then LLM
+1. Rules the user wrote (e.g. description contains "aws" -> Software). Checked by priority,
+   lowest number first.
+2. The vendor cache: the account the user last confirmed for this cleaned-up vendor name.
+3. The LLM, only for transactions still unmatched, in one batched request.
+Each step is cheaper and more trustworthy than the next, so the LLM sees as little as
+possible. The fake LLM in the tests records its calls, and tests prove that rule and cache
+matches never reach it.
+
+### Nothing is posted without a person
+Every source only creates a pending suggestion. The user accepts it, rejects it, or picks an
+account directly. Accepting runs the same `categorize` function as picking manually, which
+posts a journal entry through `ledger_service.record_entry` (so every Stage 3 rule applies):
+money out debits the category and credits the bank; money in the reverse. Because amounts are
+signed, both cases are the same two lines: bank gets `+amount`, category gets `-amount`.
+
+### Only confirmed choices go into the vendor cache
+The cache is written when a user posts a transaction, never from an LLM answer. A wrong
+guess therefore can't spread to every future transaction from that vendor. The cache is per
+organization, so one business's categories never leak into another's suggestions. The
+update is a single `INSERT ... ON CONFLICT DO UPDATE`, safe when two requests race.
+
+### "Accept and create rule"
+Accepting with `create_rule: true` adds a `vendor equals <vendor>` rule, so the next import
+of that vendor is matched by the rule. Rules are settings, not financial records, so they can
+be edited and deleted freely.
+
+### LLM behind a provider interface
+`CategorySuggester.suggest(transactions, accounts) -> {transaction_id: account_id}`.
+Implementations: `NoLLMSuggester` (default, no calls), `AnthropicSuggester`, and a fake in
+tests. Tests never call a real LLM.
+- The Anthropic provider uses structured outputs (`messages.parse` with a Pydantic schema),
+  so the answer is JSON in a known shape.
+- Its answers are still not trusted: an id is kept only if it is a transaction we asked about
+  and an allowed account of this organization (not a bank account, not another org's). Tested
+  with a deliberately misbehaving fake.
+- Only the description, the cleaned vendor and the direction (in/out) are sent, not amounts or
+  account numbers. The prompt tells the model to treat descriptions as data, not instructions.
+- Any API error, connection error or refusal returns "no suggestions" and is logged. The LLM is
+  a convenience; the review queue works without it.
+- The model is a setting (`LLM_MODEL`, default `claude-opus-5`). A cheaper model such as Claude
+  Haiku 4.5 can be configured if cost matters more than accuracy; that choice hasn't been
+  measured here.
+
+### Acceptance rate per source
+Each suggestion keeps its source, status, who decided and when. `GET /suggestions/stats`
+reports accepted / rejected / pending per source and `accepted / (accepted + rejected)`.
+Choosing a different account than the pending suggestion counts as a rejection. No acceptance
+numbers are claimed in these docs: they depend on real usage and haven't been measured.
+
+### Posting twice is prevented with a row lock
+`categorize` loads the bank transaction with `SELECT ... FOR UPDATE` and requires status
+`for_review`. Two simultaneous requests for the same transaction are serialized: the second
+sees `posted` and gets 409, so the same bank line can't create two journal entries.

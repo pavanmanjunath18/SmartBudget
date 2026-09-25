@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 60
     # Local folder for uploaded CSV files (replaced by S3 when deployed).
     upload_dir: str = "uploads"
+    # Category suggestions for transactions no rule or cache entry matches.
+    # "none" turns the LLM off; "anthropic" uses the Anthropic API (reads ANTHROPIC_API_KEY).
+    llm_provider: str = "none"
+    llm_model: str = "claude-opus-5"
 
 
 @lru_cache
