@@ -61,3 +61,4 @@ class BankTransactionRead(BaseModel):
     normalized_vendor: str
     status: str
     journal_entry_id: int | None
+    reconciled_at: datetime | None

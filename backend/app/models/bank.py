@@ -24,6 +24,7 @@ from app.db.base import Base
 class BankTransactionStatus(StrEnum):
     FOR_REVIEW = "for_review"  # imported, not yet in the ledger
     POSTED = "posted"  # categorized and posted as a journal entry
+    MATCHED = "matched"  # linked to an entry that was already in the ledger (e.g. a payment)
     EXCLUDED = "excluded"  # user said to ignore it (e.g. a transfer already recorded)
 
 
@@ -70,6 +71,11 @@ class BankTransaction(Base):
     normalized_vendor: Mapped[str] = mapped_column(String(200), index=True)
     fingerprint: Mapped[str] = mapped_column(String(64))
     status: Mapped[str] = mapped_column(String(20), default=BankTransactionStatus.FOR_REVIEW)
-    # Set when the transaction is categorized and posted to the ledger.
-    journal_entry_id: Mapped[int | None] = mapped_column(ForeignKey("journal_entries.id"))
+    # The ledger entry for this bank line: created by categorizing, or linked by matching.
+    # Unique: one ledger entry can stand for only one bank line.
+    journal_entry_id: Mapped[int | None] = mapped_column(
+        ForeignKey("journal_entries.id"), unique=True
+    )
+    # Set when a reconciliation against a bank statement is completed.
+    reconciled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

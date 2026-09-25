@@ -11,6 +11,7 @@ from app.api import (
     invoicing,
     journal,
     organizations,
+    reconciliation,
     reports,
 )
 
@@ -24,3 +25,4 @@ api_router.include_router(imports.router)
 api_router.include_router(categorization.router)
 api_router.include_router(invoicing.router)
 api_router.include_router(reports.router)
+api_router.include_router(reconciliation.router)

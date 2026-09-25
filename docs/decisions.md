@@ -334,3 +334,37 @@ worked out by hand from that list.
 ### Monthly totals for the dashboard
 `/reports/monthly` groups income and expenses by `date_trunc('month', entry_date)` in one
 query, for the income-vs-expenses chart.
+
+## Stage 8 - Reconciliation
+
+### Matching instead of double counting
+Some money reaches the ledger before its bank line is imported: a customer payment recorded
+against an invoice, or a check written and entered by hand. When that bank line arrives,
+categorizing it would record the money a second time. Instead it is *matched*: its status
+becomes `matched` and it is linked to the existing entry. No new entry is created (tested).
+- Candidates: entries with a line on the same bank account for exactly the same amount, dated
+  within 7 days, and not already linked to another bank line. Closest date first.
+- `bank_transactions.journal_entry_id` is UNIQUE, so one entry stands for one bank line,
+  including when two requests race.
+- A match can be undone until the transaction is reconciled; a categorization can't (its
+  entry is immutable; fix it with a reversal).
+
+### Reconciliation compares the statement balance with the ledger
+The user enters the statement's ending date and balance. The summary shows the ledger balance
+of that bank account on the same date, the difference, and two lists that explain it:
+- `bank_only`: imported lines still in review (in the bank, not in the books yet);
+- `ledger_only`: ledger lines on the bank account that no bank line is linked to (in the
+  books, not yet seen by the bank, e.g. an uncleared check).
+`ledger_only` starts at the first imported bank line: before any import there is nothing to
+compare against, so an opening-balance entry is not flagged forever.
+
+### Completing requires a zero difference
+`POST /reconciliation/complete` refuses unless statement balance == ledger balance. It then
+stamps `reconciled_at` on every linked bank line up to the statement date. Reconciled lines
+can't be unmatched.
+
+### Kept simple on purpose
+There is no reconciliation-history table: the state is the `reconciled_at` timestamp on
+each bank line. Considered: a `reconciliations` table (statement date, balance, who
+completed it) and per-line clearing of ledger entries without bank lines. Skipped for the MVP;
+both are straightforward to add later.
