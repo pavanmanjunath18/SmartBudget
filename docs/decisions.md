@@ -2,6 +2,32 @@
 
 A running log of decisions and the tradeoffs behind them. Newest stage at the bottom.
 
+## Challenges I hit
+
+- **The obvious duplicate check dropped real transactions.** The older project I started from
+  deduplicated on date + amount + description, which silently drops two identical purchases on
+  the same day. Adding an occurrence number fixed that but introduced a known edge case: if one
+  export cuts off mid-day and the next includes the whole day, the numbering can shift. It is
+  documented rather than hidden.
+- **Two normalizations, not one.** Using the aggressive vendor cleanup (strip store numbers and
+  long digit runs) for the fingerprint would have made `CHECK #1041` and `CHECK #1042`
+  duplicates. The fingerprint uses only case and whitespace cleanup; the vendor cleanup is used
+  only for rules and the cache.
+- **The balance sheet didn't balance at first.** Without year-end closing entries, profit to
+  date sits in income and expense accounts, so assets didn't equal liabilities plus equity.
+  The report now shows "current earnings" in equity, and a test checks the balance on several
+  dates.
+- **Tests that depended on today's date.** Invoice tests with fixed due dates started failing
+  once the real date passed them, because "overdue" is computed at read time. Tests now pass
+  dates explicitly, and the AR aging takes an `as_of` date, which also made it possible to test
+  it against the ledger balance on the same day.
+- **Clicking through the UI found a double-counting path the tests didn't.** The review queue
+  only offered "Post", so a customer payment recorded on an invoice and then imported from the
+  bank would have been booked as income twice. The matching API existed; the screen needed a
+  "Find match" action.
+- **Postgres limits.** A 10,000-row import in a single `INSERT` would exceed Postgres's 65,535
+  bind-parameter limit, so inserts are batched 1,000 rows at a time.
+
 ## Stage 1 - Project setup
 
 ### FastAPI + sync SQLAlchemy 2.0
