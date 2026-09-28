@@ -10,6 +10,9 @@ exactly right: money precision, a ledger that always balances, idempotent import
 tenant isolation. Product ideas are inspired by mainstream small-business accounting tools;
 no code, text or branding is copied from them.
 
+**Live demo:** https://smartbudget-vert-ten.vercel.app (log in with `demo@smartbudget.dev` /
+`demo-password`; it's a shared demo account, so other visitors may have changed its data).
+
 ![Dashboard](docs/screenshots/dashboard.png)
 
 ## What it does
@@ -122,6 +125,13 @@ docker compose exec api python -m app.scripts.seed
 - App: http://localhost:8080, log in as `demo@smartbudget.dev` / `demo-password` (a local
   demo account created by the seed script).
 - Interactive API docs: http://localhost:8080/api/docs
+
+### Deployment
+
+The live demo runs on Vercel: the React build is served as static files, the FastAPI app runs
+as a Python serverless function behind `/api` (`api/index.py`, `vercel.json`), and the
+database is Neon Postgres. Production deploys run database migrations as a build step
+(`scripts/vercel-build.sh`).
 
 ### Local development
 

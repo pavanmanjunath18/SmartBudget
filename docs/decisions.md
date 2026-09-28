@@ -488,3 +488,49 @@ The README states only what the code and tests show: test counts come from the a
 screenshots are of the seeded demo running in Docker, and there are no performance or
 accuracy numbers because none were measured. Suggestion acceptance rates are tracked by the
 app (`/suggestions/stats`) but depend on real usage, so none are quoted.
+
+## Deployment - Vercel and Neon
+
+### One Vercel project for the whole app
+The Vite build is served as static files, and the FastAPI app runs as one Python serverless
+function (`api/index.py` imports the unchanged app from `backend/`). `vercel.json` routes
+`/api/*` to the function and everything else to `index.html`, so the browser still talks to a
+single origin and there is still no CORS. Postgres is Neon, connected through Vercel's
+storage integration, which injects `DATABASE_URL` without the value ever leaving Vercel. The
+Docker setup is unchanged and still used for local development.
+Considered: frontend on Vercel, API as the existing Docker image on Render or Fly.io. No code
+changes, but two platforms and CORS. Chose one platform for a simpler demo.
+
+### What serverless changed in the code
+- Connections: a serverless instance can be frozen between requests, so a connection pool
+  would hold dead connections. With `DB_USE_NULL_POOL=true` each request opens and closes its
+  own connection through Neon's pooler (PgBouncer). psycopg's automatic prepared statements are
+  turned off in that mode, because a transaction-mode pooler can hand the next statement to a
+  different server connection.
+- Connection strings: hosted Postgres gives `postgres://...` URLs; settings rewrite them to
+  `postgresql+psycopg://...` so SQLAlchemy uses the installed driver.
+- Uploads: only `/tmp` is writable and it is not kept. `UPLOAD_DIR=/tmp` keeps imports
+  working (the imported rows live in Postgres); only the saved copy of the raw CSV is
+  temporary. A durable store (Vercel Blob or S3) is one new `FileStorage` class.
+- Cold starts: the first request after idle time takes a second or two. Fine for a demo.
+
+### Migrations run during the production build
+Production environment variables on Vercel are "sensitive": they can't be read back by the
+CLI, only inside Vercel's builds and functions. So `scripts/vercel-build.sh` runs
+`alembic upgrade head` during production builds only (not previews, so an unmerged pull
+request can't change the live schema), over the direct unpooled connection. With
+`SEED_DEMO_DATA=true` it also runs the idempotent demo seed. Tradeoff: a failed migration
+fails the deploy, which is the intended behaviour, but migrations are not reversible
+automatically; a bad one needs a new migration.
+
+### Found while deploying: an empty secret passed validation
+`JWT_SECRET_KEY` had no default, but an environment variable set to an empty string still
+counted as "provided". It now requires at least 16 characters, so a blank or weak secret stops
+the app from starting (tested).
+
+### Known limitations of the live demo
+- The demo login is public on purpose, so its data can be changed by anyone.
+- Signup is open, so anyone can create an account (their data is isolated by organization,
+  like any other tenant). There is no rate limiting on signup or login yet.
+- Python dependencies are listed twice: `backend/pyproject.toml` for development and
+  `requirements.txt` for Vercel's Python runtime. They have to be kept in sync by hand.

@@ -21,3 +21,8 @@ dist/
 .vscode/
 .pyvirt/
 backend/uploads/
+
+# Vercel
+.vercel
+.env*.local
+.env.vercel

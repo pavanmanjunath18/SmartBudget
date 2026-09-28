@@ -2,6 +2,7 @@
 
 from functools import lru_cache
 
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -17,8 +18,9 @@ class Settings(BaseSettings):
     test_database_url: str = (
         "postgresql+psycopg://smartbudget:smartbudget@localhost:5435/smartbudget_test"
     )
-    # No default on purpose: the app refuses to start without a signing secret.
-    jwt_secret_key: str
+    # No default on purpose: the app refuses to start without a signing secret. The minimum
+    # length also rejects a variable that is set but empty.
+    jwt_secret_key: str = Field(min_length=16)
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60
     # Local folder for uploaded CSV files (replaced by S3 when deployed).
@@ -27,6 +29,18 @@ class Settings(BaseSettings):
     # "none" turns the LLM off; "anthropic" uses the Anthropic API (reads ANTHROPIC_API_KEY).
     llm_provider: str = "none"
     llm_model: str = "claude-opus-5"
+    # Serverless (Vercel): each function instance is short-lived, so open a connection per
+    # request instead of keeping a pool that would be frozen between invocations.
+    db_use_null_pool: bool = False
+
+    @field_validator("database_url", "test_database_url")
+    @classmethod
+    def use_psycopg_driver(cls, url: str) -> str:
+        """Hosted Postgres (e.g. Neon) hands out postgres:// URLs; SQLAlchemy needs the driver."""
+        for prefix in ("postgres://", "postgresql://"):
+            if url.startswith(prefix):
+                return "postgresql+psycopg://" + url[len(prefix) :]
+        return url
 
 
 @lru_cache

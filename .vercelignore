@@ -1,0 +1,10 @@
+backend/.pyvirt
+backend/.venv
+backend/.env
+backend/tests
+backend/uploads
+frontend/node_modules
+frontend/dist
+docs
+backend/.pytest_cache
+.github
