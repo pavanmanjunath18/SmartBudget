@@ -12,10 +12,10 @@ import {
 
 import { get } from "../api/client";
 import { useAccounts } from "../api/hooks";
-import type { AgingReport, BankTransaction, MonthTotals } from "../api/types";
+import type { AgingReport, BankTransaction, MonthTotals, ProfitAndLoss } from "../api/types";
 import { useOrgId } from "../auth/AuthContext";
 import { Money } from "../components/Money";
-import { monthLabel, startOfMonth, today } from "../lib/dates";
+import { daysAgo, monthLabel, startOfMonth, today } from "../lib/dates";
 import { formatCents } from "../lib/money";
 
 function useCashPosition() {
@@ -46,6 +46,15 @@ export function DashboardPage() {
         `/orgs/${orgId}/reports/monthly?date_from=${startOfMonth(5)}&date_to=${today()}`,
       ),
   });
+  // A rolling window rather than "this month", so the number moves whenever recent
+  // transactions are posted (including on the 1st of the month).
+  const last30 = useQuery({
+    queryKey: ["profit-loss-30d", orgId],
+    queryFn: () =>
+      get<ProfitAndLoss>(
+        `/orgs/${orgId}/reports/profit-loss?date_from=${daysAgo(29)}&date_to=${today()}`,
+      ),
+  });
   const aging = useQuery({
     queryKey: ["aging", orgId],
     queryFn: () => get<AgingReport>(`/orgs/${orgId}/reports/ar-aging`),
@@ -55,7 +64,6 @@ export function DashboardPage() {
     queryFn: () => get<BankTransaction[]>(`/orgs/${orgId}/bank-transactions?status=for_review`),
   });
 
-  const thisMonth = months.data?.find((m) => m.month === startOfMonth(0));
   const chartData = (months.data ?? []).map((m) => ({
     month: monthLabel(m.month),
     Income: m.income_cents,
@@ -71,9 +79,9 @@ export function DashboardPage() {
           <div className="value">{cash.data !== undefined ? <Money cents={cash.data} /> : "-"}</div>
         </div>
         <div className="panel stat">
-          <div className="label">Net income this month</div>
+          <div className="label">Net income, last 30 days</div>
           <div className="value">
-            <Money cents={thisMonth?.net_cents ?? 0} />
+            <Money cents={last30.data?.net_income_cents ?? 0} />
           </div>
         </div>
         <div className="panel stat">

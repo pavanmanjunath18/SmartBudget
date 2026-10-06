@@ -9,6 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.models import BankTransaction, CategoryRule, MatchField, MatchType
+from app.services import categorization_service
 from app.services.ai_service import (
     AccountOption,
     AnthropicSuggester,
@@ -435,3 +436,76 @@ def test_anthropic_provider_returns_nothing_on_refusal_or_error() -> None:
 
     assert _provider(refusal).suggest(TXS, ACCOUNTS) == {}
     assert _provider(down).suggest(TXS, ACCOUNTS) == {}
+
+
+# --- Accept all ------------------------------------------------------------------------
+
+
+def _five_coffees(client: TestClient, user: LoggedInUser, suggester: FakeSuggester) -> None:
+    suggester.keyword_to_code = {"coffee": "5200"}
+    import_csv(client, user, [(f"2026-01-0{i}", f"COFFEE {i}", "-4.00") for i in range(1, 6)])
+    assert len(suggest(client, user)) == 5
+
+
+def test_accept_all_posts_pending_suggestions_up_to_the_cap(
+    client: TestClient,
+    make_user: MakeUser,
+    suggester: FakeSuggester,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    alice = make_user("alice@example.com")
+    ids = account_ids(client, alice)
+    _five_coffees(client, alice, suggester)
+    monkeypatch.setattr(categorization_service, "MAX_ACCEPT_ALL", 3)
+    url = f"{base(alice)}/suggestions/accept-all"
+
+    first = client.post(url, headers=alice.headers)
+    second = client.post(url, headers=alice.headers)
+
+    assert first.json() == {"accepted": 3, "skipped": 0, "remaining": 2}
+    assert second.json() == {"accepted": 2, "skipped": 0, "remaining": 0}
+    assert balance(client, alice, ids["5200"]) == 2000
+
+
+def test_accept_all_skips_what_cannot_be_posted_and_carries_on(
+    client: TestClient, make_user: MakeUser, suggester: FakeSuggester
+) -> None:
+    alice = make_user("alice@example.com")
+    ids = account_ids(client, alice)
+    suggester.keyword_to_code = {"coffee": "5200", "train": "5600"}
+    import_csv(
+        client,
+        alice,
+        [("2026-01-02", "COFFEE SHOP", "-4.00"), ("2026-01-03", "TRAIN TICKET", "-30.00")],
+    )
+    suggest(client, alice)
+    # Meals gets deactivated after its suggestion was made, so that one can't be posted.
+    client.patch(
+        f"{base(alice)}/accounts/{ids['5200']}", headers=alice.headers, json={"is_active": False}
+    )
+
+    result = client.post(f"{base(alice)}/suggestions/accept-all", headers=alice.headers)
+
+    assert result.json() == {"accepted": 1, "skipped": 1, "remaining": 0}
+    assert balance(client, alice, ids["5600"]) == 3000
+
+
+def test_accept_all_ignores_suggestions_for_transactions_no_longer_in_review(
+    client: TestClient, make_user: MakeUser, suggester: FakeSuggester
+) -> None:
+    alice = make_user("alice@example.com")
+    suggester.keyword_to_code = {"coffee": "5200"}
+    import_csv(
+        client,
+        alice,
+        [("2026-01-02", "COFFEE ONE", "-4.00"), ("2026-01-03", "COFFEE TWO", "-5.00")],
+    )
+    first, _ = suggest(client, alice)
+    client.post(
+        f"{base(alice)}/bank-transactions/{first['bank_transaction_id']}/exclude",
+        headers=alice.headers,
+    )
+
+    result = client.post(f"{base(alice)}/suggestions/accept-all", headers=alice.headers)
+
+    assert result.json() == {"accepted": 1, "skipped": 0, "remaining": 0}

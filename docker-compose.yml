@@ -28,6 +28,8 @@ services:
       LLM_MODEL: ${LLM_MODEL:-claude-opus-5}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       UPLOAD_DIR: /app/uploads
+      # Lets the demo account reset its own data from the UI. Off outside this local demo.
+      DEMO_RESET_ENABLED: ${DEMO_RESET_ENABLED:-true}
     volumes:
       - uploads:/app/uploads
     depends_on:

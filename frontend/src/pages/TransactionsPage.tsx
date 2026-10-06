@@ -1,14 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 
 import { get, post } from "../api/client";
 import { accountLabel, useAccounts } from "../api/hooks";
 import type {
   Account,
+  AcceptAllResult,
   BankTransaction,
   ImportPreview,
   ImportResult,
   MatchCandidate,
+  SampleDataset,
   SourceStats,
   Suggestion,
 } from "../api/types";
@@ -18,20 +21,111 @@ import { Money } from "../components/Money";
 const MAPPING_FIELDS = ["date", "description", "amount", "debit", "credit"] as const;
 type MappingField = (typeof MAPPING_FIELDS)[number];
 
-function ImportPanel({ bankAccounts }: { bankAccounts: Account[] }) {
+interface Preset {
+  file: File;
+  nonce: number; // so picking the same sample twice still triggers a fresh preview
+}
+
+function SamplePanel({ onPick }: { onPick: (file: File) => void }) {
+  const samples = useQuery({
+    queryKey: ["samples"],
+    queryFn: () => get<SampleDataset[]>("/demo/samples"),
+  });
+  const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const preview = async (sample: SampleDataset) => {
+    setBusyKey(sample.key);
+    setError(null);
+    try {
+      const response = await fetch(`/api/v1/demo/samples/${sample.key}.csv`);
+      if (!response.ok) throw new Error("Could not load the sample file.");
+      onPick(new File([await response.blob()], sample.filename, { type: "text/csv" }));
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
+  if (!samples.data?.length) return null;
+  return (
+    <div className="panel">
+      <h2>Try sample data</h2>
+      <p className="muted">
+        Download a sample bank statement, or preview and import it straight away, then watch the
+        review queue, dashboard and reports change. Tip: import 1 and accept the suggestions, then
+        import 3 to see the repeated rows skipped.
+      </p>
+      <div className="samples">
+        {samples.data.map((sample) => (
+          <div key={sample.key} className="sample">
+            <strong>{sample.title}</strong>
+            <span className="muted">{sample.row_count} rows</span>
+            <p className="muted">{sample.description}</p>
+            <div className="row">
+              <a
+                className="button"
+                href={`/api/v1/demo/samples/${sample.key}.csv`}
+                download={sample.filename}
+              >
+                Download CSV
+              </a>
+              <button
+                className="primary"
+                disabled={busyKey === sample.key}
+                onClick={() => void preview(sample)}
+              >
+                Preview &amp; import
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+      {error && <p className="error">{error}</p>}
+    </div>
+  );
+}
+
+const SOURCE_WORDS: Record<string, string> = {
+  rule: "from your rules",
+  cache: "from earlier choices",
+  llm: "by the AI",
+};
+
+function describeSuggestions(created: Suggestion[]): string {
+  const parts = Object.entries(SOURCE_WORDS)
+    .map(([source, words]) => [created.filter((s) => s.source === source).length, words] as const)
+    .filter(([count]) => count > 0)
+    .map(([count, words]) => `${count} ${words}`);
+  return `${created.length} categories suggested (${parts.join(", ")}).`;
+}
+
+function ImportPanel({
+  bankAccounts,
+  preset,
+  onImported,
+}: {
+  bankAccounts: Account[];
+  preset: Preset | null;
+  onImported: () => void;
+}) {
   const orgId = useOrgId();
   const queryClient = useQueryClient();
+  const panelRef = useRef<HTMLDivElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<ImportPreview | null>(null);
   const [mapping, setMapping] = useState<Partial<Record<MappingField, string>>>({});
   const [accountId, setAccountId] = useState<number | null>(bankAccounts[0]?.id ?? null);
   const [result, setResult] = useState<ImportResult | null>(null);
+  const [suggested, setSuggested] = useState<Suggestion[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const choose = async (chosen: File | null) => {
     setFile(chosen);
     setPreview(null);
     setResult(null);
+    setSuggested(null);
     setError(null);
     if (!chosen) return;
     const form = new FormData();
@@ -45,6 +139,13 @@ function ImportPanel({ bankAccounts }: { bankAccounts: Account[] }) {
     }
   };
 
+  // A sample picked in the panel above is previewed here, as if it had been chosen from disk.
+  useEffect(() => {
+    if (!preset) return;
+    void choose(preset.file);
+    panelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [preset]);
+
   const upload = useMutation({
     mutationFn: () => {
       const form = new FormData();
@@ -54,19 +155,29 @@ function ImportPanel({ bankAccounts }: { bankAccounts: Account[] }) {
       form.append("mapping", JSON.stringify(cleaned));
       return post<ImportResult>(`/orgs/${orgId}/imports`, form);
     },
-    onSuccess: (data) => {
+    onSuccess: async (data) => {
       setResult(data);
       setError(null);
-      queryClient.invalidateQueries({ queryKey: ["bank-transactions", orgId] });
+      onImported();
+      // Rules and earlier choices categorize what they can right away (the AI is only asked
+      // about the rest, and only if it is switched on).
+      try {
+        setSuggested(await post<Suggestion[]>(`/orgs/${orgId}/bank-transactions/suggest`));
+      } catch {
+        setSuggested(null); // the "Suggest categories" button below still works
+      }
+      await queryClient.invalidateQueries({ queryKey: ["bank-transactions", orgId] });
+      await queryClient.invalidateQueries({ queryKey: ["suggestions", orgId] });
     },
     onError: (err) => setError(err.message),
   });
 
   return (
-    <div className="panel">
+    <div className="panel" ref={panelRef}>
       <h2>Import a bank statement (CSV)</h2>
       <div className="row">
         <input type="file" accept=".csv,text/csv" onChange={(e) => choose(e.target.files?.[0] ?? null)} />
+        {file && <span className="muted">Selected: {file.name}</span>}
         <select value={accountId ?? ""} onChange={(e) => setAccountId(Number(e.target.value))}>
           {bankAccounts.map((a) => (
             <option key={a.id} value={a.id}>
@@ -94,9 +205,27 @@ function ImportPanel({ bankAccounts }: { bankAccounts: Account[] }) {
               </label>
             ))}
           </div>
-          <p className="muted">{preview.sample_rows.length} sample rows loaded.</p>
+          <p className="muted">First {preview.sample_rows.length} rows of the file:</p>
+          <table>
+            <thead>
+              <tr>
+                {preview.headers.map((h) => (
+                  <th key={h}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {preview.sample_rows.map((row, i) => (
+                <tr key={i}>
+                  {preview.headers.map((h) => (
+                    <td key={h}>{row[h]}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
           <button className="primary" disabled={upload.isPending} onClick={() => upload.mutate()}>
-            Import
+            {upload.isPending ? "Importing..." : "Import"}
           </button>
         </>
       )}
@@ -105,7 +234,8 @@ function ImportPanel({ bankAccounts }: { bankAccounts: Account[] }) {
         <div>
           <p>
             <strong>{result.imported_count}</strong> imported, {result.duplicate_count} already
-            imported (skipped), {result.invalid_count} invalid, out of {result.total_rows} rows.
+            imported (skipped), {result.invalid_count} invalid, out of {result.total_rows} rows.{" "}
+            {suggested && suggested.length > 0 && describeSuggestions(suggested)}
           </p>
           {result.errors.length > 0 && (
             <ul className="error">
@@ -278,15 +408,45 @@ export function TransactionsPage() {
     mutationFn: () => post<Suggestion[]>(`/orgs/${orgId}/bank-transactions/suggest`),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["suggestions", orgId] }),
   });
+  const [preset, setPreset] = useState<Preset | null>(null);
+  const [notice, setNotice] = useState<AcceptAllResult | null>(null);
+  const acceptAll = useMutation({
+    mutationFn: () => post<AcceptAllResult>(`/orgs/${orgId}/suggestions/accept-all`),
+    onSuccess: (data) => {
+      setNotice(data);
+      // Posting changes the dashboard and every report, so refresh everything.
+      return queryClient.invalidateQueries();
+    },
+  });
 
   const bankAccounts = accounts.filter((a) => a.subtype === "bank" && a.is_active);
   const categories = accounts.filter((a) => a.subtype !== "bank" && a.is_active);
   const byTx = new Map((suggestions.data ?? []).map((s) => [s.bank_transaction_id, s]));
+  const inReview = new Set((transactions.data ?? []).map((t) => t.id));
+  const acceptable = (suggestions.data ?? []).filter((s) => inReview.has(s.bank_transaction_id));
 
   return (
     <>
       <h1>Transactions</h1>
-      {bankAccounts.length > 0 && <ImportPanel bankAccounts={bankAccounts} />}
+      {bankAccounts.length > 0 && (
+        <SamplePanel onPick={(file) => setPreset({ file, nonce: Date.now() })} />
+      )}
+      {bankAccounts.length > 0 && (
+        <ImportPanel
+          bankAccounts={bankAccounts}
+          preset={preset}
+          onImported={() => setNotice(null)}
+        />
+      )}
+      {notice && (
+        <div className="panel notice">
+          Posted <strong>{notice.accepted}</strong> transactions to the ledger
+          {notice.skipped > 0 && `, ${notice.skipped} skipped`}.
+          {notice.remaining > 0 && ` ${notice.remaining} more are waiting: click Accept all again.`}{" "}
+          See what changed on the <Link to="/">Dashboard</Link> or in{" "}
+          <Link to="/reports">Reports</Link>.
+        </div>
+      )}
       <div className="panel">
         <div className="row">
           <h2>For review ({transactions.data?.length ?? 0})</h2>
@@ -300,8 +460,18 @@ export function TransactionsPage() {
           <button disabled={suggest.isPending} onClick={() => suggest.mutate()}>
             {suggest.isPending ? "Suggesting..." : "Suggest categories"}
           </button>
+          {acceptable.length > 0 && (
+            <button
+              className="primary"
+              disabled={acceptAll.isPending}
+              onClick={() => acceptAll.mutate()}
+            >
+              {acceptAll.isPending ? "Posting..." : `Accept all ${acceptable.length} suggestions`}
+            </button>
+          )}
         </div>
         {suggest.error && <p className="error">{suggest.error.message}</p>}
+        {acceptAll.error && <p className="error">{acceptAll.error.message}</p>}
         {transactions.data?.length === 0 ? (
           <p className="muted">Nothing to review. Import a statement to get started.</p>
         ) : (

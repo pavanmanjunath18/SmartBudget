@@ -11,6 +11,8 @@ export interface Organization {
 export interface Me {
   user: { id: number; email: string };
   organizations: Organization[];
+  // True for the shared demo account, which gets the "reset demo data" button.
+  demo: boolean;
 }
 
 export interface Account {
@@ -150,4 +152,18 @@ export interface MatchCandidate {
   memo: string;
   source: string;
   amount_cents: number;
+}
+
+export interface SampleDataset {
+  key: string;
+  title: string;
+  description: string;
+  filename: string;
+  row_count: number;
+}
+
+export interface AcceptAllResult {
+  accepted: number;
+  skipped: number;
+  remaining: number;
 }

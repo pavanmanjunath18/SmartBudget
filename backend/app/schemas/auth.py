@@ -34,3 +34,5 @@ class UserRead(BaseModel):
 class MeResponse(BaseModel):
     user: UserRead
     organizations: list[OrganizationRead]
+    # True for the shared demo account, which gets the "reset demo data" button.
+    demo: bool = False

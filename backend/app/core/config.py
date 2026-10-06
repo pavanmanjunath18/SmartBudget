@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     # Serverless (Vercel): each function instance is short-lived, so open a connection per
     # request instead of keeping a pool that would be frozen between invocations.
     db_use_null_pool: bool = False
+    # Lets the shared demo account (demo@smartbudget.dev) wipe and rebuild its own data from
+    # the UI. Off by default, so a normal install can't expose it.
+    demo_reset_enabled: bool = False
 
     @field_validator("database_url", "test_database_url")
     @classmethod

@@ -23,3 +23,7 @@ class AuthenticationError(ServiceError):
 
 class BusinessRuleError(ServiceError):
     """The request is well-formed but breaks a bookkeeping rule, e.g. an unbalanced entry."""
+
+
+class ForbiddenError(ServiceError):
+    """The caller is logged in but isn't allowed to do this."""

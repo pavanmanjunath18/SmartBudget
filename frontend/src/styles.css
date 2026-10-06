@@ -87,7 +87,33 @@ button:disabled { opacity: 0.5; cursor: default; }
 .tabs { display: flex; gap: 4px; margin-bottom: 16px; }
 .tabs button.active { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
 
-.login { max-width: 360px; margin: 80px auto; }
+.login { max-width: 440px; margin: 48px auto; padding: 0 16px; }
+.login h1 { margin-bottom: 4px; }
 .login form { display: flex; flex-direction: column; gap: 10px; }
 .form-grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
 label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+
+.demo-banner {
+  display: flex; align-items: center; gap: 8px 16px; flex-wrap: wrap;
+  padding: 8px 24px; background: var(--accent-soft); border-bottom: 1px solid var(--border);
+}
+.demo-banner button { margin-left: auto; }
+.demo-box { background: var(--accent-soft); border-color: var(--accent); }
+.credentials code, code {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px;
+}
+.samples { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+.sample {
+  display: flex; flex-direction: column; gap: 4px;
+  border: 1px solid var(--border); border-radius: 8px; padding: 12px;
+}
+.sample p { margin: 4px 0 8px; flex: 1; }
+a.button {
+  display: inline-block; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--panel); color: var(--text); text-decoration: none;
+}
+.notice { background: var(--accent-soft); border-color: var(--accent); }
+
+@media (max-width: 640px) {
+  .demo-banner { padding: 8px 16px; }
+}

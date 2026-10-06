@@ -1,6 +1,7 @@
 import { NavLink, Outlet } from "react-router-dom";
 
 import { useAuth } from "../auth/AuthContext";
+import { DemoBanner } from "./DemoBanner";
 
 const LINKS = [
   { to: "/", label: "Dashboard" },
@@ -43,6 +44,7 @@ export function Layout() {
           </button>
         </div>
       </header>
+      {me?.demo && <DemoBanner />}
       <main>
         <Outlet />
       </main>

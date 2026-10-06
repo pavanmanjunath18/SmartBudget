@@ -31,12 +31,14 @@ from app.models import (
 )
 from app.services import ledger_service
 from app.services.ai_service import AccountOption, CategorySuggester, TransactionToCategorize
-from app.services.errors import BusinessRuleError, ConflictError, NotFoundError
+from app.services.errors import BusinessRuleError, ConflictError, NotFoundError, ServiceError
 from app.services.ledger_service import LineInput
 
 logger = logging.getLogger(__name__)
 
 MAX_SUGGEST_BATCH = 200
+# One request posts at most this many, so it stays well inside a serverless time limit.
+MAX_ACCEPT_ALL = 100
 
 
 # --- Rules ---------------------------------------------------------------------------
@@ -306,6 +308,44 @@ def accept_suggestion(
     return categorize(
         db, org_id, user_id, suggestion.bank_transaction_id, suggestion.account_id, create_rule
     )
+
+
+def accept_all(db: Session, org_id: int, user_id: int) -> tuple[int, int, int]:
+    """Accept every pending suggestion for a transaction that is still in review.
+
+    Each one goes through the same `categorize` call as a single accept, so every ledger rule
+    still applies. One that fails (say its account was deactivated) is skipped and the rest
+    carry on. Returns (accepted, skipped, still pending because of the per-call cap).
+    """
+    ids = list(
+        db.scalars(
+            select(CategorySuggestion.id)
+            .join(BankTransaction, CategorySuggestion.bank_transaction_id == BankTransaction.id)
+            .where(
+                CategorySuggestion.org_id == org_id,
+                CategorySuggestion.status == SuggestionStatus.PENDING,
+                BankTransaction.status == BankTransactionStatus.FOR_REVIEW,
+            )
+            .order_by(CategorySuggestion.id)
+        )
+    )
+    batch, rest = ids[:MAX_ACCEPT_ALL], ids[MAX_ACCEPT_ALL:]
+    accepted = skipped = 0
+    for suggestion_id in batch:
+        try:
+            accept_suggestion(db, org_id, user_id, suggestion_id, create_rule=False)
+            accepted += 1
+        except ServiceError:
+            db.rollback()
+            skipped += 1
+    logger.info(
+        "suggestions_accept_all org_id=%s accepted=%s skipped=%s remaining=%s",
+        org_id,
+        accepted,
+        skipped,
+        len(rest),
+    )
+    return accepted, skipped, len(rest)
 
 
 def reject_suggestion(

@@ -10,8 +10,11 @@ exactly right: money precision, a ledger that always balances, idempotent import
 tenant isolation. Product ideas are inspired by mainstream small-business accounting tools;
 no code, text or branding is copied from them.
 
-**Live demo:** https://smartbudget-vert-ten.vercel.app (log in with `demo@smartbudget.dev` /
-`demo-password`; it's a shared demo account, so other visitors may have changed its data).
+**Live demo:** https://smartbudget-vert-ten.vercel.app. Click "Open the demo" on the login page
+(no signup; it signs in as `demo@smartbudget.dev` / `demo-password`). The books are already
+filled in. On the Transactions page, download three sample bank statements, or preview and
+import them directly, and watch the review queue, dashboard and reports change. It's a shared
+account, so "Reset demo data" puts everything back.
 
 ![Dashboard](docs/screenshots/dashboard.png)
 
@@ -131,7 +134,8 @@ docker compose exec api python -m app.scripts.seed
 The live demo runs on Vercel: the React build is served as static files, the FastAPI app runs
 as a Python serverless function behind `/api` (`api/index.py`, `vercel.json`), and the
 database is Neon Postgres. Production deploys run database migrations as a build step
-(`scripts/vercel-build.sh`).
+(`scripts/vercel-build.sh`). Set `DEMO_RESET_ENABLED=true` to turn on the demo account's
+"Reset demo data" button.
 
 ### Local development
 
@@ -162,7 +166,7 @@ cd frontend && npm test && npm run build
 ```
 
 GitHub Actions runs the same checks on every push, plus a Docker build of both images. The
-backend suite has 153 tests, including a tenancy-isolation test for each resource type, and
+backend suite has 180 tests, including a tenancy-isolation test for each resource type, and
 the frontend has 17 unit tests for the money helpers. Tests never call a real LLM: they use a
 fake provider.
 

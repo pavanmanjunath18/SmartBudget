@@ -6,6 +6,7 @@ from app.api import (
     accounts,
     auth,
     categorization,
+    demo,
     health,
     imports,
     invoicing,
@@ -26,3 +27,4 @@ api_router.include_router(categorization.router)
 api_router.include_router(invoicing.router)
 api_router.include_router(reports.router)
 api_router.include_router(reconciliation.router)
+api_router.include_router(demo.router)

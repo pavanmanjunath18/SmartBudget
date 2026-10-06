@@ -264,3 +264,22 @@ def test_customers_invoices_and_payments_are_isolated(
         f"{bob_base}/reports/ar-aging", params={"as_of": "2026-06-01"}, headers=bob.headers
     ).json()
     assert aging["rows"] == []
+
+
+def test_accept_all_only_touches_own_organization(
+    client: TestClient, make_user: MakeUser, suggester
+) -> None:
+    alice = make_user("alice@example.com")
+    bob = make_user("bob@example.com")
+    suggester.keyword_to_code = {"github": "5500"}
+    import_csv(client, alice, [("2026-01-04", "GITHUB INC", "-21.00")])
+    client.post(f"/api/v1/orgs/{alice.org_id}/bank-transactions/suggest", headers=alice.headers)
+
+    bobs = client.post(f"/api/v1/orgs/{bob.org_id}/suggestions/accept-all", headers=bob.headers)
+    # Bob can't run it against Alice's organization either.
+    theirs = client.post(f"/api/v1/orgs/{alice.org_id}/suggestions/accept-all", headers=bob.headers)
+
+    assert bobs.json() == {"accepted": 0, "skipped": 0, "remaining": 0}
+    assert theirs.status_code == 404
+    pending = client.get(f"/api/v1/orgs/{alice.org_id}/suggestions", headers=alice.headers).json()
+    assert len(pending) == 1

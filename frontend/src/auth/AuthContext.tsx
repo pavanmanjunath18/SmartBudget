@@ -11,6 +11,8 @@ interface AuthState {
   signup: (email: string, password: string, organizationName: string) => Promise<void>;
   logout: () => void;
   selectOrg: (orgId: number) => void;
+  /** Reload the user and organizations, and switch to the first organization. */
+  reloadMe: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -20,10 +22,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [orgId, setOrgId] = useState<number | null>(null);
   const [loading, setLoading] = useState(Boolean(getToken()));
 
-  const loadMe = useCallback(async () => {
+  const loadMe = useCallback(async (selectFirst = false) => {
     const data = await get<Me>("/auth/me");
     setMe(data);
-    setOrgId((current) => current ?? data.organizations[0]?.id ?? null);
+    const first = data.organizations[0]?.id ?? null;
+    setOrgId((current) => (selectFirst ? first : (current ?? first)));
   }, []);
 
   useEffect(() => {
@@ -56,7 +59,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const org = me?.organizations.find((o) => o.id === orgId) ?? null;
   return (
     <AuthContext.Provider
-      value={{ me, org, loading, login, signup, logout, selectOrg: setOrgId }}
+      value={{
+        me,
+        org,
+        loading,
+        login,
+        signup,
+        logout,
+        selectOrg: setOrgId,
+        reloadMe: () => loadMe(true),
+      }}
     >
       {children}
     </AuthContext.Provider>

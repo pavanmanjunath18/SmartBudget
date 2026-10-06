@@ -8,6 +8,7 @@ from app.db.session import get_db
 from app.models import BankTransaction, CategoryRule, CategorySuggestion, SuggestionStatus
 from app.schemas.bank import BankTransactionRead
 from app.schemas.categorization import (
+    AcceptAllResult,
     CategorizeRequest,
     DecisionRequest,
     RuleCreate,
@@ -116,6 +117,15 @@ def suggestion_stats(
         )
         for s in categorization_service.suggestion_stats(db, ctx.org_id)
     ]
+
+
+@router.post("/suggestions/accept-all", response_model=AcceptAllResult)
+def accept_all_suggestions(
+    ctx: OrgContext = Depends(get_org_context), db: Session = Depends(get_db)
+) -> AcceptAllResult:
+    """Post every pending suggestion for transactions still in review."""
+    accepted, skipped, remaining = categorization_service.accept_all(db, ctx.org_id, ctx.user.id)
+    return AcceptAllResult(accepted=accepted, skipped=skipped, remaining=remaining)
 
 
 @router.post("/suggestions/{suggestion_id}/accept", response_model=BankTransactionRead)

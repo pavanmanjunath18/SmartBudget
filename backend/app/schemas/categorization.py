@@ -67,3 +67,9 @@ class SourceStatsRead(BaseModel):
     rejected: int
     pending: int
     acceptance_rate: float | None  # accepted / (accepted + rejected); None if no decisions
+
+
+class AcceptAllResult(BaseModel):
+    accepted: int
+    skipped: int  # could not be posted (e.g. the account was deactivated)
+    remaining: int  # still pending because one call posts at most 100

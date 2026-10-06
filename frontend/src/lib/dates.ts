@@ -7,6 +7,13 @@ export function isoDate(d: Date): string {
 
 export const today = (): string => isoDate(new Date());
 
+/** The date `days` days before today, e.g. daysAgo(29) with today is a 30-day window. */
+export function daysAgo(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  return isoDate(d);
+}
+
 export function startOfMonth(monthsAgo = 0): string {
   const now = new Date();
   return isoDate(new Date(now.getFullYear(), now.getMonth() - monthsAgo, 1));

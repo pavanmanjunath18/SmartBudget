@@ -6,13 +6,13 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models import BankTransaction, BankTransactionStatus, Invoice, JournalLine, User
-from app.scripts.seed import DEMO_EMAIL, seed
 from app.services import invoice_service, report_service
+from app.services.demo_service import DEMO_EMAIL, seed_demo
 from tests.conftest import InMemoryStorage
 
 
 def test_seed_builds_consistent_demo_books(db_session: Session) -> None:
-    seed(db_session, InMemoryStorage())
+    seed_demo(db_session, InMemoryStorage())
 
     org_id = (
         db_session.scalars(select(User).where(User.email == DEMO_EMAIL)).one().memberships[0].org_id
@@ -40,9 +40,9 @@ def test_seed_builds_consistent_demo_books(db_session: Session) -> None:
 
 
 def test_seed_is_idempotent(db_session: Session) -> None:
-    seed(db_session, InMemoryStorage())
+    seed_demo(db_session, InMemoryStorage())
     lines_after_first = db_session.scalar(select(func.count()).select_from(JournalLine))
 
-    seed(db_session, InMemoryStorage())
+    seed_demo(db_session, InMemoryStorage())
 
     assert db_session.scalar(select(func.count()).select_from(JournalLine)) == lines_after_first

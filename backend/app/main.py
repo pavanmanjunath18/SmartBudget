@@ -10,6 +10,7 @@ from app.services.errors import (
     AuthenticationError,
     BusinessRuleError,
     ConflictError,
+    ForbiddenError,
     NotFoundError,
     ServiceError,
 )
@@ -19,6 +20,7 @@ _STATUS_BY_ERROR: dict[type[ServiceError], int] = {
     NotFoundError: status.HTTP_404_NOT_FOUND,
     ConflictError: status.HTTP_409_CONFLICT,
     AuthenticationError: status.HTTP_401_UNAUTHORIZED,
+    ForbiddenError: status.HTTP_403_FORBIDDEN,
     BusinessRuleError: status.HTTP_422_UNPROCESSABLE_CONTENT,
 }
 
